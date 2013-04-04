@@ -31,7 +31,7 @@ except ImportError:  # Otherwise we fall back to Graphite's bundled version
   from graphite.thirdparty import pytz
 
 from graphite.util import getProfileByUsername, json
-from graphite.remote_storage import HTTPConnectionWithTimeout
+from graphite.remote_storage import RemoteStore
 from graphite.logger import log
 from graphite.render.evaluator import evaluateTarget
 from graphite.render.attime import parseATTime
@@ -45,6 +45,7 @@ from django.core.cache import cache
 from django.core.exceptions import ObjectDoesNotExist
 from django.conf import settings
 
+import requests
 
 def renderView(request):
   start = time()
@@ -276,44 +277,29 @@ def parseOptions(request):
   return (graphOptions, requestOptions)
 
 
-connectionPools = {}
-
 def delegateRendering(graphType, graphOptions):
   start = time()
-  postData = graphType + '\n' + pickle.dumps(graphOptions)
-  servers = settings.RENDERING_HOSTS[:] #make a copy so we can shuffle it safely
+  postData = {'graphType': pickle.dumps(graphOptions)}
+  servers = [RemoteStore(host) for host in settings.RENDERING_HOSTS]
   shuffle(servers)
   for server in servers:
     start2 = time()
     try:
-      # Get a connection
       try:
-        pool = connectionPools[server]
-      except KeyError: #happens the first time
-        pool = connectionPools[server] = set()
-      try:
-        connection = pool.pop()
-      except KeyError: #No available connections, have to make a new one
-        connection = HTTPConnectionWithTimeout(server)
-        connection.timeout = settings.REMOTE_RENDER_CONNECT_TIMEOUT
-      # Send the request
-      try:
-        connection.request('POST','/render/local/', postData)
-      except CannotSendRequest:
-        connection = HTTPConnectionWithTimeout(server) #retry once
-        connection.timeout = settings.REMOTE_RENDER_CONNECT_TIMEOUT
-        connection.request('POST', '/render/local/', postData)
+        response = requests.post(server.url + '/render/local', data=postData, timeout=settings.REMOTE_RENDER_CONNECT_TIMEOUT)
+        #connection.request('POST','/render/local/', postData)
+      except:
+        # retry once
+        response = requests.post(server.url + '/render/local', data=postData, timeout=settings.REMOTE_RENDER_CONNECT_TIMEOUT)
       # Read the response
-      response = connection.getresponse()
-      assert response.status == 200, "Bad response code %d from %s" % (response.status,server)
-      contentType = response.getheader('Content-Type')
-      imageData = response.read()
+      assert response.status_code == 200, "Bad response code %d from %s" % (response.status,server)
+      contentType = response.headers['content-type']
+      imageData = response.content
       assert contentType == 'image/png', "Bad content type: \"%s\" from %s" % (contentType,server)
       assert imageData, "Received empty response from %s" % server
       # Wrap things up
       log.rendering('Remotely rendered image on %s in %.6f seconds' % (server,time() - start2))
       log.rendering('Spent a total of %.6f seconds doing remote rendering work' % (time() - start))
-      pool.add(connection)
       return imageData
     except:
       log.exception("Exception while attempting remote rendering request on %s" % server)
