@@ -12,13 +12,16 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License."""
 
-import socket
+from gevent.pool import Pool
+import gevent.socket as socket
+import gevent
 import struct
 import time
 from django.conf import settings
 from graphite.logger import log
 from graphite.storage import STORE, LOCAL_STORE
 from graphite.render.hashing import ConsistentHashRing
+import functools
 
 try:
   import cPickle as pickle
@@ -211,32 +214,45 @@ for host in settings.CARBONLINK_HOSTS:
 #A shared importable singleton
 CarbonLink = CarbonLinkPool(hosts, settings.CARBONLINK_TIMEOUT)
 
+def fetchDataSingle(startTime, endTime, ret_results, dbFile):
+  start_len = len(ret_results)
+  log.metric_access(dbFile.metric_path)
+  dbResults = dbFile.fetch( timestamp(startTime), timestamp(endTime) )
+  try:
+    cachedResults = CarbonLink.query(dbFile.real_metric)
+    results = mergeResults(dbResults, cachedResults)
+  except:
+    log.exception()
+    print dbFile.store.url
+    results = dbResults
+  ret_results.append((dbFile,results))
+  diff = len(ret_results) - start_len
 
 # Data retrieval API
 def fetchData(requestContext, pathExpr):
   seriesList = []
   startTime = requestContext['startTime']
   endTime = requestContext['endTime']
-
+  results = []
+  fetchfunction = functools.partial(fetchDataSingle, startTime, endTime, results)
   if requestContext['localOnly']:
     store = LOCAL_STORE
   else:
     store = STORE
 
-  for dbFile in store.find(pathExpr):
-    log.metric_access(dbFile.metric_path)
-    dbResults = dbFile.fetch( timestamp(startTime), timestamp(endTime) )
-    try:
-      cachedResults = CarbonLink.query(dbFile.real_metric)
-      results = mergeResults(dbResults, cachedResults)
-    except:
-      log.exception()
-      results = dbResults
+  start = time.time()
+  pool = Pool(settings.REMOTE_PARALLEL_REQUESTS)
+  pool.map(fetchfunction, store.find(pathExpr))
 
-    if not results:
+  gevent.joinall(pool)
+  end = time.time()
+  print "Fetching data took {0} seconds".format(float(end-start))
+
+  for (dbFile, x) in results:
+    if not x:
       continue
 
-    (timeInfo,values) = results
+    (timeInfo,values) = x
     (start,end,step) = timeInfo
     series = TimeSeries(dbFile.metric_path, start, end, step, values)
     series.pathExpression = pathExpr #hack to pass expressions through to render functions

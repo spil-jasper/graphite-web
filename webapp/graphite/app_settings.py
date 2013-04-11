@@ -49,7 +49,7 @@ MEDIA_URL = ''
 ADMIN_MEDIA_PREFIX = '/media/'
 
 # Make this unique, and don't share it with anybody.
-SECRET_KEY = ''
+SECRET_KEY = '1'
 
 # List of callables that know how to import templates from various sources.
 #XXX Compatibility for Django 1.1. To be removed after 0.9.10
@@ -88,6 +88,7 @@ INSTALLED_APPS = (
   'django.contrib.admin',
   'django.contrib.contenttypes',
   'tagging',
+  'django_extensions',
 )
 
 AUTHENTICATION_BACKENDS = ['django.contrib.auth.backends.ModelBackend']

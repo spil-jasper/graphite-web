@@ -8,4 +8,6 @@ except ImportError:
     sys.exit(1)
 
 if __name__ == "__main__":
+    from gevent import monkey
+    monkey.patch_all()
     execute_manager(settings)

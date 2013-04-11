@@ -63,6 +63,7 @@ REMOTE_STORE_FETCH_TIMEOUT = 6
 REMOTE_STORE_FIND_TIMEOUT = 2.5
 REMOTE_STORE_RETRY_DELAY = 60
 REMOTE_FIND_CACHE_DURATION = 300
+REMOTE_PARALLEL_REQUESTS = 50
 
 #Remote rendering settings
 REMOTE_RENDERING = False #if True, rendering is delegated to RENDERING_HOSTS
@@ -94,6 +95,16 @@ USE_REMOTE_USER_AUTHENTICATION = False
 
 # Override to link a different URL for login (e.g. for django_openid_auth)
 LOGIN_URL = '/account/login'
+DATABASES = {
+    'default': {
+        'NAME': 'storage/graphite.db',
+        'ENGINE': 'django.db.backends.sqlite3',
+        'USER': '',
+        'PASSWORD': '',
+        'HOST': '',
+        'PORT': ''
+    }
+}
 
 #Initialize database settings - Old style (pre 1.2)
 DATABASE_ENGINE = 'django.db.backends.sqlite3'	# 'postgresql', 'mysql', 'sqlite3' or 'ado_mssql'.

@@ -24,7 +24,7 @@ class RemoteStore(object):
     if url_or_host.startswith('http://') or url_or_host.startswith('https://'):
       self.url = url_or_host
     else:
-      self.url = 'http://{}/'.format(url_or_host)
+      self.url = 'http://{0}/'.format(url_or_host)
     self.host = urlparse(self.url).hostname
     log.info('Added remote store: ' + self.url)
 
@@ -39,7 +39,7 @@ class RemoteStore(object):
     self.lastFailure = time.time()
 
   def __unicode__(self):
-    return '<RemoteStore: {}>'.format(self.url)
+    return '<RemoteStore: {0}>'.format(self.url)
 
 
 
@@ -67,13 +67,12 @@ class FindRequest:
       ('query', self.query),
     ]
     query_string = urlencode(query_params)
-    url = '{}/metrics/find/'.format(self.store.url)
+    url = '{0}/metrics/find/'.format(self.store.url)
 
     try:
       self.r = requests.get(url, params=dict(query_params), timeout=settings.REMOTE_STORE_FIND_TIMEOUT)
-    except Exception as e:
-      print self.r
-      log.info('Error fetching data from store {}: {}'.format(self.store.url, str(e)))
+    except Exception, e:
+      log.info('Error fetching data from store {0}: {1}'.format(self.store.url, str(e)))
       self.store.fail()
       if not self.suppressErrors:
         raise
@@ -133,10 +132,14 @@ class RemoteNode:
     ]
 
     time_start = time.time()
-    url = '{}/render/'.format(self.store.url)
-    r = requests.get(url, params=dict(query_params), timeout=settings.REMOTE_STORE_FETCH_TIMEOUT)
+    url = '{0}/render/'.format(self.store.url)
+    try:
+      r = requests.get(url, params=dict(query_params), timeout=settings.REMOTE_STORE_FETCH_TIMEOUT)
+    except:
+      log.info('Failed fetching {0} from {1}').format(self.metric_path, self.store.url)
+      raise
     time_stop = time.time()
-    log.info('Fetched {} from {} ({})'.format(self.metric_path, self.store.url, float(time_stop - time_start)))
+    log.info('Fetched {0} from {1} ({2})'.format(self.metric_path, self.store.url, float(time_stop - time_start)))
 
     assert r.status_code == 200, "Failed to retrieve remote data: %d %s" % (r.status_code, r.text)
     rawData = r.content

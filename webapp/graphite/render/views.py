@@ -279,7 +279,7 @@ def parseOptions(request):
 
 def delegateRendering(graphType, graphOptions):
   start = time()
-  postData = {'graphType': pickle.dumps(graphOptions)}
+  postData = {'graphType': pickle.dumps(graphType), 'graphOptions': pickle.dumps(graphOptions)}
   servers = [RemoteStore(host) for host in settings.RENDERING_HOSTS]
   shuffle(servers)
   for server in servers:
@@ -306,23 +306,17 @@ def delegateRendering(graphType, graphOptions):
       log.rendering('Exception while remotely rendering on %s wasted %.6f' % (server,time() - start2))
       continue
 
-
 def renderLocalView(request):
   try:
     start = time()
-    reqParams = StringIO(request.raw_post_data)
-    graphType = reqParams.readline().strip()
-    optionsPickle = reqParams.read()
-    reqParams.close()
-    graphClass = GraphTypes[graphType]
-    options = pickle.loads(optionsPickle)
-    image = doImageRender(graphClass, options)
+    graphType = pickle.loads(str(request.POST['graphType']))
+    graphOptions = pickle.loads(str(request.POST['graphOptions']))
+    image = doImageRender(GraphTypes[graphType], graphOptions)
     log.rendering("Delegated rendering request took %.6f seconds" % (time() -  start))
     return buildResponse(image)
   except:
     log.exception("Exception in graphite.render.views.rawrender")
     return HttpResponseServerError()
-
 
 def renderMyGraphView(request,username,graphName):
   profile = getProfileByUsername(username)
