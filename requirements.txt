@@ -5,7 +5,6 @@ Werkzeug==0.8.3
 django-extensions==1.1.1
 django-tagging==0.3.1
 greenlet==0.4.0
-pycairo==1.8.10
 pysqlite==2.6.3
 python-memcached==1.48
 pytz==2013b
@@ -17,6 +16,6 @@ txAMQP==0.6.2
 uWSGI==1.9.6
 wsgiref==0.1.2
 zope.interface==4.0.5
-http://cairographics.org/releases/py2cairo-1.8.8.tar.gz
+http://cairographics.org/releases/pycairo-1.8.8.tar.gz
 git+git://github.com/graphite-project/whisper.git#egg=whisper
 git+git://github.com/surfly/gevent@1.0rc2
