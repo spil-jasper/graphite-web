@@ -223,7 +223,6 @@ def fetchDataSingle(startTime, endTime, ret_results, dbFile):
     results = mergeResults(dbResults, cachedResults)
   except:
     log.exception()
-    print dbFile.store.url
     results = dbResults
   ret_results.append((dbFile,results))
   diff = len(ret_results) - start_len
@@ -246,7 +245,6 @@ def fetchData(requestContext, pathExpr):
 
   gevent.joinall(pool)
   end = time.time()
-  print "Fetching data took {0} seconds".format(float(end-start))
 
   for (dbFile, x) in results:
     if not x:

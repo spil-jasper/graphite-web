@@ -46,8 +46,11 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.conf import settings
 
 import requests
+from statsd import statsd
+
 
 def renderView(request):
+  statsd.incr('render.req')
   start = time()
   (graphOptions, requestOptions) = parseOptions(request)
   useCache = 'noCache' not in requestOptions
@@ -65,10 +68,12 @@ def renderView(request):
     requestKey = hashRequest(request)
     cachedResponse = cache.get(requestKey)
     if cachedResponse:
+      statsd.incr('render.request_cache_hit')
       log.cache('Request-Cache hit [%s]' % requestKey)
       log.rendering('Returned cached response in %.6f' % (time() - start))
       return cachedResponse
     else:
+      statsd.incr('render.request_cache_miss')
       log.cache('Request-Cache miss [%s]' % requestKey)
 
   # Now we prepare the requested data
@@ -97,8 +102,10 @@ def renderView(request):
       dataKey = hashData(targets, startTime, endTime)
       cachedData = cache.get(dataKey)
       if cachedData:
+        statsd.incr('render.data_cache_hit')
         log.cache("Data-Cache hit [%s]" % dataKey)
       else:
+        statsd.incr('render.data_cache_miss')
         log.cache("Data-Cache miss [%s]" % dataKey)
     else:
       cachedData = None
@@ -108,7 +115,8 @@ def renderView(request):
     else: # Have to actually retrieve the data now
       for target in requestOptions['targets']:
         t = time()
-        seriesList = evaluateTarget(requestContext, target)
+        with statsd.timer('render.evaluate_target_duration'):
+          seriesList = evaluateTarget(requestContext, target)
         log.rendering("Retrieval of %s took %.6f" % (target, time() - t))
         data.extend(seriesList)
 
@@ -116,6 +124,7 @@ def renderView(request):
       cache.set(dataKey, data, cacheTimeout)
 
     format = requestOptions.get('format')
+    statsd.incr('render.format.{0}'.format(format))
     if format == 'csv':
       response = HttpResponse(mimetype='text/csv')
       writer = csv.writer(response, dialect='excel')
@@ -151,8 +160,10 @@ def renderView(request):
         response.write( "%s,%d,%d,%d|" % (series.name, series.start, series.end, series.step) )
         response.write( ','.join(map(str,series)) )
         response.write('\n')
-
-      log.rendering('Total rawData rendering time %.6f' % (time() - start))
+      
+      delta = time() - start
+      statsd.timing('render.total_raw_duration', delta * 1000)
+      log.rendering('Total rawData rendering time %.6f' % (delta))
       return response
 
     if format == 'svg':
@@ -162,17 +173,22 @@ def renderView(request):
       response = HttpResponse(mimetype='application/pickle')
       seriesInfo = [series.getInfo() for series in data]
       pickle.dump(seriesInfo, response, protocol=-1)
-
-      log.rendering('Total pickle rendering time %.6f' % (time() - start))
+      delta = time() - start
+      statsd.timing('render.total_pickle_duration', delta * 1000)
+      log.rendering('Total pickle rendering time %.6f' % (delta))
       return response
 
 
   # We've got the data, now to render it
   graphOptions['data'] = data
   if settings.REMOTE_RENDERING: # Rendering on other machines is faster in some situations
-    image = delegateRendering(requestOptions['graphType'], graphOptions)
+    statsd.incr('render.delegate')
+    with statsd.timer('render.delegate_image_render.duration'):
+      image = delegateRendering(requestOptions['graphType'], graphOptions)
   else:
-    image = doImageRender(requestOptions['graphClass'], graphOptions)
+    statsd.incr('render.local_render')
+    with statsd.timer('render.local_image_render.duration'):
+      image = doImageRender(requestOptions['graphClass'], graphOptions)
 
   useSVG = graphOptions.get('outputFormat') == 'svg'
   if useSVG and 'jsonp' in requestOptions:
@@ -185,7 +201,9 @@ def renderView(request):
   if useCache:
     cache.set(requestKey, response, cacheTimeout)
 
-  log.rendering('Total rendering time %.6f seconds' % (time() - start))
+  delta = time() - start
+  statsd.timing('render.total_image_duration', delta * 1000)
+  log.rendering('Total rendering time %.6f seconds' % (delta))
   return response
 
 
@@ -308,13 +326,17 @@ def delegateRendering(graphType, graphOptions):
 
 def renderLocalView(request):
   try:
+    statsd.incr('render_local')
     start = time()
     graphType = pickle.loads(str(request.POST['graphType']))
     graphOptions = pickle.loads(str(request.POST['graphOptions']))
     image = doImageRender(GraphTypes[graphType], graphOptions)
-    log.rendering("Delegated rendering request took %.6f seconds" % (time() -  start))
+    delta = time() - start
+    statsd.timing('render_local', delta * 1000)
+    log.rendering("Delegated rendering request took %.6f seconds" % delta)
     return buildResponse(image)
   except:
+    statsd.incr('errors.render_local')
     log.exception("Exception in graphite.render.views.rawrender")
     return HttpResponseServerError()
 

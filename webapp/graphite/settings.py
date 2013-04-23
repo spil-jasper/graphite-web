@@ -16,6 +16,7 @@ limitations under the License."""
 import sys, os
 from django import VERSION as DJANGO_VERSION
 from os.path import abspath, dirname, join
+from os import uname
 
 try:
   import rrdtool
@@ -79,6 +80,12 @@ DOCUMENTATION_URL = "http://graphite.readthedocs.org/"
 ALLOW_ANONYMOUS_CLI = True
 LOG_METRIC_ACCESS = False
 LEGEND_MAX_ITEMS = 10
+
+#Statsd settings
+STATSD_HOST = "localhost"
+STATSD_PORT = 8125
+STATSD_PREFIX = ""
+STATSD_SUFFIX = uname()[1].split(".")[0]
 
 #Authentication settings
 USE_LDAP_AUTH = False

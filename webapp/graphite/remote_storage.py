@@ -8,6 +8,8 @@ from django.core.cache import cache
 from django.conf import settings
 from graphite.render.hashing import compactHash
 from graphite.logger import log
+from statsd import statsd
+
 
 try:
   import cPickle as pickle
@@ -30,6 +32,7 @@ class RemoteStore(object):
 
 
   def find(self, query):
+    statsd.incr('{0}.find.req'.format(self.get_statsd_key()))
     request = FindRequest(self, query)
     request.send()
     return request
@@ -37,6 +40,10 @@ class RemoteStore(object):
 
   def fail(self):
     self.lastFailure = time.time()
+
+
+  def get_statsd_key(self):
+    return 'remote.{0}'.format(self.host.replace('.', '_'))
 
   def __unicode__(self):
     return '<RemoteStore: {0}>'.format(self.url)
@@ -70,8 +77,11 @@ class FindRequest:
     url = '{0}/metrics/find/'.format(self.store.url)
 
     try:
-      self.r = requests.get(url, params=dict(query_params), timeout=settings.REMOTE_STORE_FIND_TIMEOUT)
+      key = '{0}.find.duration'.format(self.store.get_statsd_key())
+      with statsd.timer(key):
+        self.r = requests.get(url, params=dict(query_params), timeout=settings.REMOTE_STORE_FIND_TIMEOUT)
     except Exception, e:
+      statsd.incr('{0}.find.error.connection'.format(self.store.get_statsd_key()))
       log.info('Error fetching data from store {0}: {1}'.format(self.store.url, str(e)))
       self.store.fail()
       if not self.suppressErrors:
@@ -80,7 +90,9 @@ class FindRequest:
 
   def get_results(self):
     if self.cachedResults:
+      statsd.incr('{0}.find.cache_hit'.format(self.store.get_statsd_key()))
       return self.cachedResults
+    statsd.incr('{0}.find.cache_miss'.format(self.store.get_statsd_key()))
 
     if not self.r:
       self.send()
@@ -90,9 +102,8 @@ class FindRequest:
       try:
         result_data = self.r.content
         results = pickle.loads(result_data)
-
       except:
-        print self.r
+        statsd.incr('{0}.find.error.bad_response'.format(self.store.get_statsd_key()))
         self.store.fail()
         if not self.suppressErrors:
           raise
@@ -121,6 +132,7 @@ class RemoteNode:
 
 
   def fetch(self, startTime, endTime):
+    statsd.incr('{0}.get.req'.format(self.store.get_statsd_key()))
     if not self.__isLeaf:
       return []
 
@@ -131,21 +143,29 @@ class RemoteNode:
       ('until', str( int(endTime) ))
     ]
 
-    time_start = time.time()
     url = '{0}/render/'.format(self.store.url)
     try:
-      r = requests.get(url, params=dict(query_params), timeout=settings.REMOTE_STORE_FETCH_TIMEOUT)
+      with statsd.timer('{0}.get.duration'.format(self.store.get_statsd_key())):
+        r = requests.get(url, params=dict(query_params), timeout=settings.REMOTE_STORE_FETCH_TIMEOUT)
     except:
+      statsd.incr('{0}.get.error.connection'.format(self.store.get_statsd_key()))
       log.info('Failed fetching {0} from {1}').format(self.metric_path, self.store.url)
       raise
-    time_stop = time.time()
-    log.info('Fetched {0} from {1} ({2})'.format(self.metric_path, self.store.url, float(time_stop - time_start)))
 
-    assert r.status_code == 200, "Failed to retrieve remote data: %d %s" % (r.status_code, r.text)
+    try:
+      assert r.status_code == 200, "Failed to retrieve remote data: %d %s" % (r.status_code, r.text)
+    except:
+      statsd.incr('{0}.get.error.bad_response'.format(self.store.get_statsd_key()))
+      raise
     rawData = r.content
 
     seriesList = pickle.loads(rawData)
-    assert len(seriesList) == 1, "Invalid result: seriesList=%s" % str(seriesList)
+    try:
+      assert len(seriesList) == 1, "Invalid result: seriesList=%s" % str(seriesList)
+    except:
+      statsd.incr('{0}.get.error.invalid_result'.format(self.store.get_statsd_key()))
+      raise
+
     series = seriesList[0]
 
     timeInfo = (series['start'], series['end'], series['step'])
